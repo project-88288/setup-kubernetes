@@ -1,38 +1,38 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ftrade-minibot-binance-btcusdt-5m-env
+  name: ftrade-minibot-kucoin-xrpusdt-1m-env
   labels:
     app: ftrade-minibot
-    exchange: "binance"
-    pair: "BTCUSDT"
-    timeframe: "5m"
+    exchange: "kucoin"
+    pair: "XRPUSDT"
+    timeframe: "1m"
 data:
-  EXCHANGE: "binance"
-  SYMBOL: "BTCUSDT"
-  INTERVAL: "5m"
+  EXCHANGE: "kucoin"
+  SYMBOL: "XRPUSDT"
+  INTERVAL: "1m"
   REMOTE_OPTIMIZER_PORT: "4500"
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ftrade-minibot-binance-btcusdt-5m
+  name: ftrade-minibot-kucoin-xrpusdt-1m
   labels:
     app: ftrade-minibot
-    exchange: "binance"
-    pair: "BTCUSDT"
-    timeframe: "5m"
+    exchange: "kucoin"
+    pair: "XRPUSDT"
+    timeframe: "1m"
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: ftrade-minibot
-      instance: "ftrade-minibot-binance-btcusdt-5m"
+      instance: "ftrade-minibot-kucoin-xrpusdt-1m"
   template:
     metadata:
       labels:
         app: ftrade-minibot
-        instance: "ftrade-minibot-binance-btcusdt-5m"
+        instance: "ftrade-minibot-kucoin-xrpusdt-1m"
     spec:
       containers:
         - name: minibot
@@ -40,6 +40,6 @@ spec:
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
-                name: ftrade-minibot-binance-btcusdt-5m-env
+                name: ftrade-minibot-kucoin-xrpusdt-1m-env
             - secretRef:
-                name: ftrade-minibot-binance-secret
+                name: ftrade-minibot-kucoin-secret

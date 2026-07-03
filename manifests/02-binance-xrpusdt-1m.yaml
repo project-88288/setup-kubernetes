@@ -1,38 +1,38 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: ftrade-minibot-binance-ethusdt-30m-env
+  name: ftrade-minibot-binance-xrpusdt-1m-env
   labels:
     app: ftrade-minibot
     exchange: "binance"
-    pair: "ETHUSDT"
-    timeframe: "30m"
+    pair: "XRPUSDT"
+    timeframe: "1m"
 data:
   EXCHANGE: "binance"
-  SYMBOL: "ETHUSDT"
-  INTERVAL: "30m"
+  SYMBOL: "XRPUSDT"
+  INTERVAL: "1m"
   REMOTE_OPTIMIZER_PORT: "4500"
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ftrade-minibot-binance-ethusdt-30m
+  name: ftrade-minibot-binance-xrpusdt-1m
   labels:
     app: ftrade-minibot
     exchange: "binance"
-    pair: "ETHUSDT"
-    timeframe: "30m"
+    pair: "XRPUSDT"
+    timeframe: "1m"
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: ftrade-minibot
-      instance: "ftrade-minibot-binance-ethusdt-30m"
+      instance: "ftrade-minibot-binance-xrpusdt-1m"
   template:
     metadata:
       labels:
         app: ftrade-minibot
-        instance: "ftrade-minibot-binance-ethusdt-30m"
+        instance: "ftrade-minibot-binance-xrpusdt-1m"
     spec:
       containers:
         - name: minibot
@@ -40,6 +40,6 @@ spec:
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
-                name: ftrade-minibot-binance-ethusdt-30m-env
+                name: ftrade-minibot-binance-xrpusdt-1m-env
             - secretRef:
                 name: ftrade-minibot-binance-secret
