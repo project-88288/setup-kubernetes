@@ -1,0 +1,14 @@
+{
+  "name": "ftrade-minibot-configmap-generator",
+  "version": "1.0.0",
+  "description": "Generate Kubernetes ConfigMaps + Deployments that run the prebuilt chaiya0899223232/ftrade-minibot image, one per exchange/pair/timeframe combination built from ./config .env data.",
+  "type": "module",
+  "bin": {
+    "gen-configmaps": "generate.js"
+  },
+  "scripts": {
+    "generate": "node generate.js",
+    "clean": "rm -rf manifests"
+  },
+  "license": "MIT"
+}

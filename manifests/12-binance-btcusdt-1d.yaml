@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ftrade-minibot-binance-btcusdt-1d-env
+  labels:
+    app: ftrade-minibot
+    exchange: "binance"
+    pair: "BTCUSDT"
+    timeframe: "1d"
+data:
+  EXCHANGE: "binance"
+  SYMBOL: "BTCUSDT"
+  INTERVAL: "1d"
+  REMOTE_OPTIMIZER_PORT: "4500"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ftrade-minibot-binance-btcusdt-1d
+  labels:
+    app: ftrade-minibot
+    exchange: "binance"
+    pair: "BTCUSDT"
+    timeframe: "1d"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ftrade-minibot
+      instance: "ftrade-minibot-binance-btcusdt-1d"
+  template:
+    metadata:
+      labels:
+        app: ftrade-minibot
+        instance: "ftrade-minibot-binance-btcusdt-1d"
+    spec:
+      containers:
+        - name: minibot
+          image: "chaiya0899223232/ftrade-mini-bot:latest"
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: ftrade-minibot-binance-btcusdt-1d-env
+            - secretRef:
+                name: ftrade-minibot-binance-secret

@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - secret-binance.yaml
+  - 01-binance-btcusdt-1m.yaml
+  - 02-binance-btcusdt-3m.yaml
+  - 03-binance-btcusdt-5m.yaml
+  - 04-binance-btcusdt-15m.yaml
+  - 05-binance-btcusdt-30m.yaml
+  - 06-binance-btcusdt-1h.yaml
+  - 07-binance-btcusdt-2h.yaml
+  - 08-binance-btcusdt-4h.yaml
+  - 09-binance-btcusdt-6h.yaml
+  - 10-binance-btcusdt-8h.yaml
+  - 11-binance-btcusdt-12h.yaml
+  - 12-binance-btcusdt-1d.yaml
+  - 13-binance-ethusdt-1m.yaml
+  - 14-binance-ethusdt-3m.yaml
+  - 15-binance-ethusdt-5m.yaml
+  - 16-binance-ethusdt-15m.yaml
+  - 17-binance-ethusdt-30m.yaml
+  - 18-binance-ethusdt-1h.yaml
+  - 19-binance-ethusdt-2h.yaml
+  - 20-binance-ethusdt-4h.yaml
