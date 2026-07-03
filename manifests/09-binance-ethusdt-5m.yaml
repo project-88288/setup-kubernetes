@@ -8,10 +8,34 @@ metadata:
     pair: "ETHUSDT"
     timeframe: "5m"
 data:
+  REMOTE_OPTIMIZER_PORT: "4500"
+  LEVERAGE: "1"
+  FUTURES_MODE: "true"
+  TRADE_CAPITAL: "10"
+  TRADE_PERCENT: "10"
+  MIN_ALLOW_PERCENT: "500"
+  MIN_CANDLES: "3000"
+  MAX_CANDLES: "10000"
+  OPTIMIZER_URL: "http://host.docker.internal:4500"
+  FAST_MA: "6"
+  SLOW_MA: "17"
+  RSI_PERIOD: "13"
+  RSI_THRESHOLD: "53"
+  STOP_LOSS_PERCENT: "3"
+  TAKE_PROFIT_PERCENT: "6"
+  TRAILING_PERCENT: "5"
+  TRADE_FEE: "0.1"
+  BACKTEST_CANDLE_LENGTH: "3003"
+  BACKTEST_ANNUAL_RETURN: "-97"
+  BACKTEST_TOTAL_PNL: "-9.64"
+  BACKTEST_WIN_RATE: "32"
+  BACKTEST_MAX_DD: "12.8"
+  BACKTEST_FINAL_CAPITAL: "90.48"
+  BACKTEST_TRADES: "25"
+  BACKTEST_AT: "2026-07-03T04:22:06.583Z"
   EXCHANGE: "binance"
   SYMBOL: "ETHUSDT"
   INTERVAL: "5m"
-  REMOTE_OPTIMIZER_PORT: "4500"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -34,6 +58,23 @@ spec:
         app: ftrade-minibot
         instance: "ftrade-minibot-binance-ethusdt-5m"
     spec:
+      # The image reads config from env vars but also requires a WRITABLE
+      # /app/.env file (it persists backtest results there). envFrom alone never
+      # creates that file, so an init container seeds a writable copy from the
+      # same ConfigMap+Secret into an emptyDir that the bot mounts at /app/.env.
+      initContainers:
+        - name: seed-dotenv
+          image: "chaiya0899223232/ftrade-mini-bot:latest"
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "printenv > /seed/.env && chmod 666 /seed/.env"]
+          envFrom:
+            - configMapRef:
+                name: ftrade-minibot-binance-ethusdt-5m-env
+            - secretRef:
+                name: ftrade-minibot-binance-secret
+          volumeMounts:
+            - name: dotenv
+              mountPath: /seed
       containers:
         - name: minibot
           image: "chaiya0899223232/ftrade-mini-bot:latest"
@@ -43,3 +84,10 @@ spec:
                 name: ftrade-minibot-binance-ethusdt-5m-env
             - secretRef:
                 name: ftrade-minibot-binance-secret
+          volumeMounts:
+            - name: dotenv
+              mountPath: /app/.env
+              subPath: .env
+      volumes:
+        - name: dotenv
+          emptyDir: {}

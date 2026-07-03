@@ -8,8 +8,11 @@ A Node.js manifest generator (no runtime service of its own). It emits Kubernete
 manifests that run the prebuilt image `chaiya0899223232/ftrade-mini-bot:latest` —
 one Deployment + ConfigMap per **exchange × pair × timeframe** combination. Each
 pod loads its combo's config via `envFrom` (ConfigMap for plain values, a shared
-per-exchange Secret for credentials). There is no build step and no test suite;
-`generate.js` is the whole product.
+per-exchange Secret for credentials). The image also **requires a writable
+`/app/.env` file** (it persists backtest results there); env vars alone are not
+enough, so each pod runs a `seed-dotenv` init container that writes the combo's
+config into an `emptyDir` mounted at `/app/.env`. There is no build step and no
+test suite; `generate.js` is the whole product.
 
 **A combo is only emitted if it clears a backtest gate.** For every combination
 `generate.js` asks the optimizer service (over HTTP, `X-Optimizer-Key`) for its
@@ -60,11 +63,19 @@ Requires Node with ESM (`"type": "module"`). No dependencies to install.
   exchange, a numbered `NN-<slug>.yaml` (ConfigMap+Deployment) per combo, a
   `kustomization.yaml`, and records the resolved set back to `config/combinations.json`.
 
+Each combo's Deployment mounts an `emptyDir` at `/app/.env` and a `seed-dotenv`
+init container (`printenv > /app/.env`, `chmod 666`) materializes it from the
+same ConfigMap+Secret, so the image has both env vars and the writable `.env`
+file it needs.
+
 Env-splitting rule (in `generate.js`): keys matching `_KEY|_SECRET|_PASSPHRASE|_TOKEN|_PASSWORD`
 go into the per-exchange **Secret**; everything else into the combo **ConfigMap**.
 Keys prefixed `BINANCE_`/`KUCOIN_` are scoped to that exchange; unprefixed keys
 apply to all. See `isSecret()` and `keyAppliesTo()`. Keys in `GENERATOR_ONLY_KEYS`
 (`MIN_ALLOW_ROA`, `TOP_ROA_N`) configure the generator and are kept out of both.
+Keys in `COMBO_KEYS` (`EXCHANGE`, `SYMBOL`, `INTERVAL`) are fixed by the combo and
+always override any same-named `.env` default — otherwise every ConfigMap would
+inherit `.env`'s single-bot `SYMBOL`/`INTERVAL`/`EXCHANGE`. See `configForCombo()`.
 
 ## Inputs
 

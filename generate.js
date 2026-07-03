@@ -45,6 +45,11 @@ const INTERVAL_MINUTES = {
 // the per-combo bot ConfigMaps/Secrets.
 const GENERATOR_ONLY_KEYS = new Set(["MIN_ALLOW_ROA", "TOP_ROA_N"]);
 
+// Keys whose value is fixed by the combo (exchange × pair × timeframe). Any
+// same-named .env entry is a single-bot default and must NOT override the combo
+// — otherwise every ConfigMap inherits .env's SYMBOL/INTERVAL/EXCHANGE.
+const COMBO_KEYS = new Set(["EXCHANGE", "SYMBOL", "INTERVAL"]);
+
 // ── args ────────────────────────────────────────────────────────────────────
 function parseArgs(argv) {
   const opts = { dryRun: false, top: undefined, out: path.join(__dirname, "manifests") };
@@ -126,15 +131,15 @@ function keyAppliesTo(key, exchange) {
 /** Non-sensitive ConfigMap values for a combo. */
 function configForCombo(baseEnv, combo) {
   const { exchange, pair, timeframe } = combo;
-  const config = {
-    EXCHANGE: exchange,
-    SYMBOL: pair,
-    INTERVAL: timeframe,
-  };
+  const config = {};
   for (const [k, v] of Object.entries(baseEnv)) {
-    if (GENERATOR_ONLY_KEYS.has(k)) continue;
+    if (GENERATOR_ONLY_KEYS.has(k) || COMBO_KEYS.has(k)) continue;
     if (!isSecret(k) && keyAppliesTo(k, exchange)) config[k] = v;
   }
+  // Combo-controlled values always win over any .env default of the same name.
+  config.EXCHANGE = exchange;
+  config.SYMBOL = pair;
+  config.INTERVAL = timeframe;
   return config;
 }
 
@@ -222,6 +227,23 @@ spec:
         app: ftrade-minibot
         instance: ${q(name)}
     spec:
+      # The image reads config from env vars but also requires a WRITABLE
+      # /app/.env file (it persists backtest results there). envFrom alone never
+      # creates that file, so an init container seeds a writable copy from the
+      # same ConfigMap+Secret into an emptyDir that the bot mounts at /app/.env.
+      initContainers:
+        - name: seed-dotenv
+          image: ${q(IMAGE)}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "printenv > /seed/.env && chmod 666 /seed/.env"]
+          envFrom:
+            - configMapRef:
+                name: ${name}-env
+            - secretRef:
+                name: ${secretName(combo.exchange)}
+          volumeMounts:
+            - name: dotenv
+              mountPath: /seed
       containers:
         - name: minibot
           image: ${q(IMAGE)}
@@ -231,6 +253,13 @@ spec:
                 name: ${name}-env
             - secretRef:
                 name: ${secretName(combo.exchange)}
+          volumeMounts:
+            - name: dotenv
+              mountPath: /app/.env
+              subPath: .env
+      volumes:
+        - name: dotenv
+          emptyDir: {}
 `;
 }
 
