@@ -1,0 +1,6 @@
+# Secrets / credentials — never commit
+.env
+manifests/secret-*.yaml
+
+# Node
+node_modules/
