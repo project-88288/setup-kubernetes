@@ -370,14 +370,27 @@ async function gateCombo(combo, { baseUrl, key, candleFiles }) {
   }
 
   // Latest candle snapshot for this combo (filenames carry a sortable stamp).
-  const prefix = `${safeKey(combo.exchange)}_${safeKey(combo.pair)}_${safeKey(combo.timeframe)}_`;
-  const snaps = candleFiles.filter((f) => f.startsWith(prefix) && f.endsWith(".json")).sort();
-  if (!snaps.length) return { ok: false, reason: "no candle window to annualize" };
+  const prefix = `${combo.exchange}/${combo.pair}/${combo.timeframe}`;
+  const snaps = candleFiles.filter((f) => f.startsWith(prefix)).sort();
 
-  const candles = await getJson(
-    `${baseUrl}/candles/file?name=${encodeURIComponent(snaps[snaps.length - 1])}`,
-    key
-  );
+  let candles = null;
+  if (snaps.length > 0) {
+    // Try to fetch the latest candle file from the manifest
+    candles = await getJson(
+      `${baseUrl}/candles/file?name=${encodeURIComponent(snaps[snaps.length - 1])}`,
+      key
+    );
+  } else {
+    // If candle not found in manifest, try to fetch it directly from the optimizer API
+    // by constructing a filename pattern and trying to fetch the latest available
+    const candleQuery = new URLSearchParams({
+      exchange: combo.exchange,
+      symbol: combo.pair,
+      interval: combo.timeframe,
+    });
+    candles = await getJson(`${baseUrl}/candles/latest?${candleQuery}`, key);
+  }
+
   const count = Array.isArray(candles) ? candles.length : 0;
   if (count < 2) return { ok: false, reason: "candle snapshot too short" };
 
