@@ -6,7 +6,7 @@ Kubernetes manifest generator for running **ftrade-mini-bot** trading bots at sc
 
 ```bash
 # Generate manifests for the top 10 performing combos
-npm run generate
+npm start
 
 # Apply to cluster
 kubectl apply -k manifests
@@ -58,13 +58,13 @@ LEVERAGE=2
 ## Commands
 
 ```bash
-node generate.js                  # Gate every combo, generate top TOP_ROA_N
-node generate.js --top 5          # Override TOP_ROA_N for this run
-node generate.js --dry-run        # Report full ROA ranking, write nothing
-node generate.js --out ./out      # Write manifests to custom directory
+npm start                         # Gate every combo, generate top TOP_ROA_N
+npm start -- --top 5              # Override TOP_ROA_N for this run
+npm start -- --dry-run            # Report full ROA ranking, write nothing
+npm start -- --out ./out          # Write manifests to custom directory
 
-npm run generate                  # Alias for: node generate.js
-npm run clean                     # Alias for: rm -rf manifests
+npm run generate                  # Same as: npm start
+npm run clean                     # Remove manifests directory
 ```
 
 ## Deployment
