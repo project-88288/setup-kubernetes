@@ -20,11 +20,11 @@ kubectl delete -k manifests
 
 ## How It Works
 
-1. **Configuration** → `.env` + `config/` define trading pairs, timeframes, and optimizer credentials
-2. **Generation** → `generate.js` fetches backtest ROA from the optimizer service for every combination
-3. **Filtering** → Only combos with annualized ROA > 250% (configurable) are selected; top 10 (configurable) proceed
+1. **Fetch Combinations** → `generate.js` queries optimizer's `/candles/manifest` endpoint to get all available combinations
+2. **Gate Combos** → For each combination, fetch backtest ROA from the optimizer service
+3. **Filter** → Only combos with annualized ROA > 250% (configurable) are selected; top 10 (configurable) proceed
 4. **Manifests** → Per-exchange Secrets (credentials) and per-combo ConfigMaps + Deployments are written
-5. **Deployment** → `kubectl apply -k manifests` spins up the pods
+5. **Deploy** → `kubectl apply -k manifests` spins up the pods
 6. **Runtime** → Each pod runs `ftrade-mini-bot:latest` with its combo's config injected via ConfigMap/Secret
 
 ## Configuration
@@ -54,33 +54,6 @@ LEVERAGE=2
 ```
 
 **Important:** `.env` and generated `manifests/` should never be committed — they contain live credentials.
-
-### Config Directory
-
-```
-config/
-├── exchanges.json           # List of active exchanges: ["binance", "kucoin"]
-├── binance-pairs.json       # Pairs per exchange: ["BTCUSDT", "ETHUSDT", ...]
-├── binance-timeframes.json  # Timeframes: ["1m", "5m", "1h"]
-├── kucoin-pairs.json
-├── kucoin-timeframes.json
-└── combinations.json        # Generated: which combos were selected (DON'T edit)
-```
-
-**Example** `exchanges.json`:
-```json
-["binance", "kucoin"]
-```
-
-**Example** `binance-pairs.json`:
-```json
-["BTCUSDT", "ETHUSDT", "BNBUSDT"]
-```
-
-**Example** `binance-timeframes.json`:
-```json
-["1m", "5m", "1h"]
-```
 
 ## Commands
 
@@ -158,7 +131,7 @@ Each run produces:
 ### Manifest Generator (`generate.js`)
 
 ```javascript
-buildAllCombinations()  // Read config/, return all exchange × pair × timeframe combos
+buildAllCombinations()  // Query optimizer /candles/manifest, extract combos from file paths
   ↓
 gateCombo()             // For each combo:
                         //   1. Fetch optimizer's best backtest result
@@ -255,10 +228,7 @@ The optimizer's `/results` endpoint should reflect the latest backtests.
 ├── .env                          # Credentials & gate thresholds (NOT committed)
 ├── .gitignore                    # Excludes .env and manifests/
 ├── config/
-│   ├── exchanges.json
-│   ├── {exchange}-pairs.json
-│   ├── {exchange}-timeframes.json
-│   └── combinations.json          # Generated: selected combos
+│   └── combinations.json          # Generated: selected combos (for reference)
 ├── manifests/                     # Generated Kubernetes YAML
 │   ├── {exchange}-secret.yaml
 │   ├── NN-{slug}.yaml            # ConfigMap + Deployment per combo
