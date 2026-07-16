@@ -53,12 +53,13 @@ Requires Node with ESM (`"type": "module"`). No dependencies to install.
 ## Architecture
 
 **`generate.js`** — the manifest generator: a CLI over a small core.
-- `buildAllCombinations()` — reads `config/` and returns the full combo set.
+- `buildAllCombinations(baseUrl, key)` — fetches combinations from the optimizer's
+  `/candles/manifest` endpoint and parses file paths (e.g., `binance/BTCUSDT/5m.json`)
+  to extract exchange, pair, and timeframe. Returns the full combo set.
 - `gateCombo(combo, {baseUrl, key, candleFiles})` — fetches the combo's best
   backtest from the optimizer (`GET /results`), sizes the window from its latest
-  candle snapshot (`GET /candles/manifest` once + `GET /candles/file`), and
-  returns the annualized ROA (`totalPnl × 365 / windowDays`). The candle manifest
-  is fetched once per run and reused for every combo.
+  candle snapshot (candle manifest is fetched once per run and reused for every combo),
+  and returns the annualized ROA (`totalPnl × 365 / windowDays`).
 - `writeManifests(selected, outDir)` — wipes `outDir`, writes one Secret per used
   exchange, a numbered `NN-<slug>.yaml` (ConfigMap+Deployment) per combo, a
   `kustomization.yaml`, and records the resolved set back to `config/combinations.json`.
@@ -79,9 +80,10 @@ inherit `.env`'s single-bot `SYMBOL`/`INTERVAL`/`EXCHANGE`. See `configForCombo(
 
 ## Inputs
 
-- **`config/exchanges.json`** drives everything. For each exchange it expects
-  `config/<exchange>-pairs.json` and `config/<exchange>-timeframes.json`. Add a
-  pair/timeframe/exchange by editing these files — combos are their cross product.
+- **Optimizer API** (`GET /candles/manifest`) provides all available combinations.
+  The manifest returns file paths like `exchange/pair/timeframe.json` which
+  `generate.js` parses to build the combo set. Add combinations by ensuring they
+  exist in the optimizer's candle storage.
 - **`.env`** (KEY=VALUE) is the source for all ConfigMap/Secret values **and** for
   the gate: `REMOTE_OPTIMIZER_PORT` + `REMOTE_OPTIMIZER_KEY` locate/authenticate
   the optimizer, `MIN_ALLOW_ROA` (default 250) is the ROA threshold, and

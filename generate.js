@@ -1,15 +1,17 @@
 #!/usr/bin/env node
 /**
  * Generate Kubernetes ConfigMaps (each holding a distinct .env) that run the
- * prebuilt image `chaiya0899223232/ftrade-minibot`, one per
- * exchange × pair × timeframe combination taken from ./config.
+ * prebuilt image `chaiya0899223232/ftrade-minibot`, one per combination
+ * fetched from the optimizer API.
  *
- * Only combos that clear a backtest gate are emitted: for every combination we
- * ask the optimizer service (over HTTP, using REMOTE_OPTIMIZER_KEY) for its best
- * saved result and annualize the ROA over the combo's candle window. Combos with
- * no saved result, or an annualized ROA that does not exceed MIN_ALLOW_ROA, are
- * dropped. The survivors are ranked by ROA and a ConfigMap+Deployment is written
- * for the top TOP_ROA_N of them.
+ * Combinations are fetched from the optimizer's /candles/manifest endpoint,
+ * where file paths (e.g., binance/BTCUSDT/5m.json) encode exchange, pair, and
+ * timeframe. Only combos that clear a backtest gate are emitted: for every
+ * combination we ask the optimizer service (over HTTP, using REMOTE_OPTIMIZER_KEY)
+ * for its best saved result and annualize the ROA over the combo's candle window.
+ * Combos with no saved result, or an annualized ROA that does not exceed
+ * MIN_ALLOW_ROA, are dropped. The survivors are ranked by ROA and a
+ * ConfigMap+Deployment is written for the top TOP_ROA_N of them.
  *
  * Optimizer connection + gate come from .env:
  *   REMOTE_OPTIMIZER_PORT   optimizer HTTP port on this host (default 4500)
@@ -64,17 +66,6 @@ function parseArgs(argv) {
 }
 
 // ── loaders ──────────────────────────────────────────────────────────────────
-function readJson(file) {
-  const p = path.join(CONFIG_DIR, file);
-  const raw = fs.readFileSync(p, "utf8").trim();
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw);
-  } catch (err) {
-    throw new Error(`Failed to parse ${file}: ${err.message}`);
-  }
-}
-
 /** Parse a KEY=VALUE .env file into an object (ignores comments/blank lines). */
 function parseEnv(file) {
   const out = {};
@@ -98,23 +89,34 @@ function parseEnv(file) {
 }
 
 // ── combinations ─────────────────────────────────────────────────────────────
-function buildCombinations(exchanges) {
+/** Fetch all available combinations from the optimizer API.
+ * Extracts combinations from /candles/manifest file paths (e.g., binance/BTCUSDT/5m.json).
+ */
+async function fetchCombinationsFromOptimizer(baseUrl, key) {
+  const manifest = await getJson(`${baseUrl}/candles/manifest`, key);
+  if (!Array.isArray(manifest?.files)) {
+    throw new Error("optimizer /candles/manifest returned no files array");
+  }
+
   const combos = [];
-  for (const exchange of exchanges) {
-    const pairs = readJson(`${exchange}-pairs.json`);
-    const timeframes = readJson(`${exchange}-timeframes.json`);
-    for (const pair of pairs) {
-      for (const timeframe of timeframes) {
-        combos.push({ exchange, pair, timeframe });
-      }
+  const seen = new Set();
+  for (const file of manifest.files) {
+    // Parse "exchange/pair/timeframe.json" → { exchange, pair, timeframe }
+    const match = file.match(/^([^/]+)\/([^/]+)\/([^.]+)\.json$/);
+    if (!match) continue;
+    const [, exchange, pair, timeframe] = match;
+    const key = `${exchange}:${pair}:${timeframe}`;
+    if (!seen.has(key)) {
+      combos.push({ exchange, pair, timeframe });
+      seen.add(key);
     }
   }
   return combos;
 }
 
-/** The full exchange × pair × timeframe combination set from ./config. */
-export function buildAllCombinations() {
-  return buildCombinations(readJson("exchanges.json"));
+/** Fetch the full combination set from the optimizer API. */
+export async function buildAllCombinations(baseUrl, key) {
+  return fetchCombinationsFromOptimizer(baseUrl, key);
 }
 
 /** Sensitive keys go into a Secret; everything else into a ConfigMap. */
@@ -404,7 +406,12 @@ async function main() {
     throw new Error(`TOP_ROA_N (or --top) must be a positive integer, got ${topN}`);
   }
 
-  const combos = buildAllCombinations();
+  let combos;
+  try {
+    combos = await buildAllCombinations(baseUrl, key);
+  } catch (err) {
+    throw new Error(`Cannot fetch combinations from optimizer: ${err.message}`);
+  }
   console.log(
     `Gating ${combos.length} combinations at ${baseUrl} — keep annualized ROA > MIN_ALLOW_ROA=${minRoa}%/yr, generate top ${topN}\n`
   );
