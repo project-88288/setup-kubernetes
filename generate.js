@@ -34,7 +34,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = path.join(__dirname, "config");
 const ENV_FILE = path.join(__dirname, ".env");
-const IMAGE = "chaiya0899223232/ftrade-mini-bot:latest";
 
 // Interval string → minutes, for turning a candle count into a time span.
 const INTERVAL_MINUTES = {
@@ -189,7 +188,7 @@ ${data}
 `;
 }
 
-function renderManifest(combo, config) {
+function renderManifest(combo, config, image) {
   const name = `ftrade-minibot-${slug(combo)}`;
   const labels = [
     `    app: ftrade-minibot`,
@@ -235,7 +234,7 @@ spec:
       # same ConfigMap+Secret into an emptyDir that the bot mounts at /app/.env.
       initContainers:
         - name: seed-dotenv
-          image: ${q(IMAGE)}
+          image: ${q(image)}
           imagePullPolicy: IfNotPresent
           command: ["sh", "-c", "printenv > /seed/.env && chmod 666 /seed/.env"]
           envFrom:
@@ -248,7 +247,7 @@ spec:
               mountPath: /seed
       containers:
         - name: minibot
-          image: ${q(IMAGE)}
+          image: ${q(image)}
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -272,6 +271,8 @@ spec:
  */
 export function writeManifests(selected, outDir) {
   const baseEnv = parseEnv(ENV_FILE);
+  const registryUser = baseEnv.REGISTRY_USER || "88288";
+  const image = `${registryUser}/ftrade-mini-bot:latest`;
 
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });
@@ -293,7 +294,7 @@ export function writeManifests(selected, outDir) {
   for (const combo of selected) {
     const config = configForCombo(baseEnv, combo);
     const file = `${String(written.length + 1).padStart(2, "0")}-${slug(combo)}.yaml`;
-    fs.writeFileSync(path.join(outDir, file), renderManifest(combo, config));
+    fs.writeFileSync(path.join(outDir, file), renderManifest(combo, config, image));
     written.push({ ...combo, file });
     kustomizeResources.push(`  - ${file}`);
   }
