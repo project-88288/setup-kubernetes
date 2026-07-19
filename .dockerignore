@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env.local
+.env.*.local
+.last-built-image
+node_modules
+*.log
+.DS_Store
+.vscode
+.idea
+*.swp
+*.swo
+README.md
+CLAUDE.md
+DOCKER*.md
+docker-compose.override.yml

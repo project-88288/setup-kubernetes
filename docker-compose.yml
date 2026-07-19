@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  # The manifest generator service
+  # Fetches combos from optimizer, gates by ROA, generates K8s manifests, deploys
+  ftrade-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ftrade-generator
+    environment:
+      # Optimizer API connection
+      OPTIMIZER_URL: http://optimizer:4500
+      REMOTE_OPTIMIZER_KEY: ${REMOTE_OPTIMIZER_KEY}
+
+      # Generator gating thresholds
+      MIN_ALLOW_ROA: ${MIN_ALLOW_ROA:-250}
+      TOP_ROA_N: ${TOP_ROA_N:-10}
+
+      # Exchange credentials (go into Secrets)
+      BINANCE_API_KEY: ${BINANCE_API_KEY}
+      BINANCE_API_SECRET: ${BINANCE_API_SECRET}
+      KUCOIN_API_KEY: ${KUCOIN_API_KEY}
+      KUCOIN_API_SECRET: ${KUCOIN_API_SECRET}
+      KUCOIN_PASSPHRASE: ${KUCOIN_PASSPHRASE}
+
+    # Mount kubeconfig for cluster access
+    volumes:
+      - ~/.kube:/root/.kube:ro
+      - ./manifests:/app/manifests
+      - ./config:/app/config:ro
+
+    # Connect to optimizer service on the network
+    networks:
+      - ftrade-network
+
+    # Run the full pipeline by default
+    command: run
+
+    depends_on:
+      optimizer:
+        condition: service_healthy
+
+    profiles:
+      - full-stack
+
+  # Optional: The optimizer API service (for complete local testing)
+  optimizer:
+    image: 88288/optimizer:latest
+    container_name: ftrade-optimizer
+    environment:
+      PORT: 4500
+      SHARED_KEY: ${REMOTE_OPTIMIZER_KEY}
+    ports:
+      - "4500:4500"
+    networks:
+      - ftrade-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-H", "X-Optimizer-Key: ${REMOTE_OPTIMIZER_KEY}", "http://localhost:4500/candles/manifest"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    profiles:
+      - full-stack
+
+networks:
+  ftrade-network:
+    driver: bridge

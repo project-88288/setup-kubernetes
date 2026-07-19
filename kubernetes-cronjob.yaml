@@ -1,0 +1,177 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ftrade-generator
+  namespace: default
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ftrade-generator
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/rollout"]
+    verbs: ["create", "get"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ftrade-generator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ftrade-generator
+subjects:
+  - kind: ServiceAccount
+    name: ftrade-generator
+    namespace: default
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ftrade-generator
+  namespace: default
+spec:
+  # Run every 6 hours
+  schedule: "0 */6 * * *"
+
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: ftrade-generator
+        spec:
+          serviceAccountName: ftrade-generator
+
+          containers:
+            - name: ftrade-generator
+              # Change to your registry and tag
+              image: 88288/ftrade-generator:latest
+              imagePullPolicy: IfNotPresent
+
+              env:
+                # Optimizer API connection
+                # Point to optimizer service in-cluster or external URL
+                - name: OPTIMIZER_URL
+                  value: "http://optimizer:4500"
+
+                # Shared secret for optimizer authentication
+                - name: REMOTE_OPTIMIZER_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: ftrade-secrets
+                      key: optimizer-key
+
+                # Generator thresholds
+                - name: MIN_ALLOW_ROA
+                  value: "250"
+                - name: TOP_ROA_N
+                  value: "10"
+
+                # Exchange credentials
+                - name: BINANCE_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: ftrade-secrets
+                      key: binance-api-key
+                - name: BINANCE_API_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: ftrade-secrets
+                      key: binance-api-secret
+
+                - name: KUCOIN_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: ftrade-secrets
+                      key: kucoin-api-key
+                - name: KUCOIN_API_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: ftrade-secrets
+                      key: kucoin-api-secret
+                - name: KUCOIN_PASSPHRASE
+                  valueFrom:
+                    secretKeyRef:
+                      name: ftrade-secrets
+                      key: kucoin-passphrase
+
+              # Mount to write manifests
+              volumeMounts:
+                - name: manifests
+                  mountPath: /app/manifests
+
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 256Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+
+          # Persistent volume for manifests
+          volumes:
+            - name: manifests
+              persistentVolumeClaim:
+                claimName: ftrade-manifests
+
+          # Don't retry failed jobs
+          restartPolicy: Never
+
+  # Keep last 3 successful and 1 failed job for inspection
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+
+---
+# PersistentVolumeClaim for manifests
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ftrade-manifests
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # Adjust storageClassName to match your cluster's storage class
+  # storageClassName: standard
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+# Secret holding all credentials
+# Create with: kubectl create secret generic ftrade-secrets \
+#   --from-literal=optimizer-key=YOUR_KEY \
+#   --from-literal=binance-api-key=YOUR_KEY \
+#   --from-literal=binance-api-secret=YOUR_SECRET \
+#   --from-literal=kucoin-api-key=YOUR_KEY \
+#   --from-literal=kucoin-api-secret=YOUR_SECRET \
+#   --from-literal=kucoin-passphrase=YOUR_PASS
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ftrade-secrets
+  namespace: default
+type: Opaque
+# Base64-encoded values (replace with real credentials)
+# DO NOT COMMIT ACTUAL SECRETS TO GIT
+data:
+  optimizer-key: aW5zZXJ0LXlvdXItc2VjcmV0LWhlcmU=  # base64: insert-your-secret-here
+  binance-api-key: aW5zZXJ0LXlvdXItYmluYW5jZS1rZXk=  # base64: insert-your-binance-key
+  binance-api-secret: aW5zZXJ0LXlvdXItYmluYW5jZS1zZWNyZXQ=  # base64: insert-your-binance-secret
+  kucoin-api-key: aW5zZXJ0LXlvdXIta3Vjb2luLWtleQ==  # base64: insert-your-kucoin-key
+  kucoin-api-secret: aW5zZXJ0LXlvdXIta3Vjb2luLXNlY3JldA==  # base64: insert-your-kucoin-secret
+  kucoin-passphrase: aW5zZXJ0LXlvdXIta3VjY2luLXBhc3NwaGFzZQ==  # base64: insert-your-kucoin-passphrase
