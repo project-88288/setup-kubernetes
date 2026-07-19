@@ -4,32 +4,26 @@ set -e
 echo "🚀 Starting deployment pipeline..."
 echo ""
 
-# Step 1: Rebuild the image
+# Step 1: Generate Kubernetes manifests
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Step 1/4: Building Docker image"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-./rebuild-image.sh
-echo ""
-
-# Step 2: Generate Kubernetes manifests
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Step 2/4: Generating Kubernetes manifests"
+echo "Step 1/3: Generating Kubernetes manifests"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 node generate.js
 echo ""
 
-# Step 3: Apply manifests to Kubernetes
+# Step 2: Apply manifests to Kubernetes
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Step 3/4: Applying manifests to Kubernetes"
+echo "Step 2/3: Applying manifests to Kubernetes"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 kubectl apply -k manifests
 echo ""
 
-# Step 4: Wait for rollout and update pods
+# Step 3: Restart deployments to pull latest image
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Step 4/4: Updating running pods to latest image"
+echo "Step 3/3: Restarting deployments to pull latest image"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-./update-image.sh
+kubectl rollout restart deployment -l app=ftrade-minibot
+kubectl rollout status deployment -l app=ftrade-minibot --timeout=5m
 echo ""
 
 echo "✅ Deployment complete!"
