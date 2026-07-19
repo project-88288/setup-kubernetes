@@ -10,9 +10,10 @@ RUN apk add --no-cache curl bash && \
 # Copy generator files
 COPY package.json .
 COPY generate.js .
-COPY .env .
 COPY config/ ./config/
 COPY manifests/ ./manifests/
+
+# .env is optional - can be mounted at runtime or passed via -e flags
 
 # Install dependencies (if any)
 RUN npm ci --omit=dev || true
