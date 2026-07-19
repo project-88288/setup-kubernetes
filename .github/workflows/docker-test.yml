@@ -1,0 +1,74 @@
+name: Docker Image Tests
+
+on:
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - 'docker-entrypoint.sh'
+      - '.github/workflows/docker-test.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - 'docker-entrypoint.sh'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ftrade-generator:test
+          cache-from: type=gha
+
+      - name: Test image build
+        run: |
+          echo "✅ Docker image built successfully"
+          docker image inspect ftrade-generator:test
+
+      - name: Test command: help
+        run: |
+          echo "Testing help command..."
+          docker run --rm ftrade-generator:test help 2>&1 | head -20
+
+      - name: Test command: dry-run
+        run: |
+          echo "Testing dry-run command..."
+          docker run --rm \
+            -e REMOTE_OPTIMIZER_KEY=test-key \
+            ftrade-generator:test dry-run 2>&1 | head -5
+
+      - name: Verify tools
+        run: |
+          echo "Verifying container tools..."
+          docker run --rm --entrypoint /bin/bash ftrade-generator:test -c \
+            'echo "Node.js: $(node --version)" && \
+             echo "kubectl: $(kubectl version --client 2>&1 | grep -o "v[0-9]*\.[0-9]*\.[0-9]*")" && \
+             echo "curl: $(curl --version | head -1)"'
+
+      - name: Check image size
+        run: |
+          docker images ftrade-generator:test --format "Image: {{.Repository}}:{{.Tag}}, Size: {{.Size}}"
+
+      - name: Scan for common issues
+        run: |
+          echo "Scanning Dockerfile for best practices..."
+          if grep -q "latest" Dockerfile; then
+            echo "⚠️  Warning: Dockerfile references 'latest' tag (not recommended in production)"
+          fi
+          if ! grep -q "FROM.*alpine" Dockerfile; then
+            echo "⚠️  Warning: Not using Alpine base image (larger size)"
+          fi
+          echo "✅ Dockerfile scan complete"
