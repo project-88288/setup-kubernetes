@@ -2,8 +2,6 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# CI/CD: GitHub Actions workflow test build
-
 # Install kubectl for Kubernetes deployment
 RUN apk add --no-cache curl bash && \
     curl -L https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl -o /usr/local/bin/kubectl && \
