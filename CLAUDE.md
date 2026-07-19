@@ -2,94 +2,150 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## What this repo is
+## Project Overview
 
-A Node.js manifest generator (no runtime service of its own). It emits Kubernetes
-manifests that run the prebuilt image `chaiya0899223232/ftrade-mini-bot:latest` —
-one Deployment + ConfigMap per **exchange × pair × timeframe** combination. Each
-pod loads its combo's config via `envFrom` (ConfigMap for plain values, a shared
-per-exchange Secret for credentials). The image also **requires a writable
-`/app/.env` file** (it persists backtest results there); env vars alone are not
-enough, so each pod runs a `seed-dotenv` init container that writes the combo's
-config into an `emptyDir` mounted at `/app/.env`. There is no build step and no
-test suite; `generate.js` is the whole product.
+This repository generates Kubernetes manifests for running the `88288/ftrade-minibot` image. The minibot is a crypto trading bot that trades on different exchanges (Binance, KuCoin), pairs (BTCUSDT, ETHUSDT, etc.), and timeframes (1m, 5m, 3m, etc.).
 
-**A combo is only emitted if it clears a backtest gate.** For every combination
-`generate.js` asks the optimizer service (over HTTP, `X-Optimizer-Key`) for its
-best saved result, annualizes the ROA over the combo's candle window, and drops
-combos with no result or an annualized ROA that does not **exceed**
-`MIN_ALLOW_ROA` (default 250 %/yr). Survivors are ranked by ROA and manifests are
-written for the **top `TOP_ROA_N`** (default 10). This requires the optimizer
-(`../ftrade-msi-optimizer-bot-p2p`) to be running and reachable — by default at
-`http://127.0.0.1:${REMOTE_OPTIMIZER_PORT}`.
-
-## Commands
-
-```bash
-node generate.js                # gate every combo, write manifests for the top TOP_ROA_N
-node generate.js --top 5        # override TOP_ROA_N for this run
-node generate.js --dry-run      # gate + report full ROA ranking only, write nothing
-node generate.js --out ./out    # write manifests to a different directory
-npm run generate                # == node generate.js
-npm run clean                   # rm -rf manifests
-
-kubectl apply -k manifests      # apply the whole generated set (kustomization.yaml ties it together)
-```
-
-Stop / tear down the deployed bots (every generated manifest carries the
-`app: ftrade-minibot` label):
-
-```bash
-kubectl delete -k manifests                                   # remove the whole set (Deployments, ConfigMaps, Secrets)
-kubectl scale deployment -l app=ftrade-minibot --replicas=0   # stop pods but keep Deployments (fast restart)
-kubectl scale deployment -l app=ftrade-minibot --replicas=1   # bring them back
-kubectl delete deployment ftrade-minibot-binance-btcusdt-1m   # stop a single combo
-```
-
-A local `node generate.js` run is stopped with `Ctrl+C`.
-
-Requires Node with ESM (`"type": "module"`). No dependencies to install.
+Rather than manually creating a Kubernetes Deployment for each combination, this generator:
+1. Queries an **optimizer API** to fetch available trading combinations (exchange/pair/timeframe triplets)
+2. **Gates** each combination by fetching its best backtest result and annualizing the ROA (Return on Asset)
+3. Filters out combos with ROA below a threshold (default 250%/year)
+4. Generates Kubernetes manifests (ConfigMap + Secret + Deployment) for the top N survivors by ROA
+5. Writes all manifests to `manifests/` and manages them with Kustomize
 
 ## Architecture
 
-**`generate.js`** — the manifest generator: a CLI over a small core.
-- `buildAllCombinations(baseUrl, key)` — fetches combinations from the optimizer's
-  `/candles/manifest` endpoint and parses file paths (e.g., `binance/BTCUSDT/5m.json`)
-  to extract exchange, pair, and timeframe. Returns the full combo set.
-- `gateCombo(combo, {baseUrl, key, candleFiles})` — fetches the combo's best
-  backtest from the optimizer (`GET /results`), sizes the window from its latest
-  candle snapshot (candle manifest is fetched once per run and reused for every combo),
-  and returns the annualized ROA (`totalPnl × 365 / windowDays`).
-- `writeManifests(selected, outDir)` — wipes `outDir`, writes one Secret per used
-  exchange, a numbered `NN-<slug>.yaml` (ConfigMap+Deployment) per combo, a
-  `kustomization.yaml`, and records the resolved set back to `config/combinations.json`.
+### Main Components
 
-Each combo's Deployment mounts an `emptyDir` at `/app/.env` and a `seed-dotenv`
-init container (`printenv > /app/.env`, `chmod 666`) materializes it from the
-same ConfigMap+Secret, so the image has both env vars and the writable `.env`
-file it needs.
+**generate.js** — The core generator script. It:
+- Reads configuration from `.env` (optimizer connection, ROA gate, top-N selection)
+- Fetches all available combinations from the optimizer's `/candles/manifest` endpoint
+- For each combo, calls the optimizer's `/results` endpoint to get the best backtest
+- Calculates annualized ROA using the formula: `(totalPnl × 365) / windowDays`
+- Ranks survivors by ROA and selects the top `TOP_ROA_N`
+- Generates YAML manifests and persists the resolved combo list to `config/combinations.json`
 
-Env-splitting rule (in `generate.js`): keys matching `_KEY|_SECRET|_PASSPHRASE|_TOKEN|_PASSWORD`
-go into the per-exchange **Secret**; everything else into the combo **ConfigMap**.
-Keys prefixed `BINANCE_`/`KUCOIN_` are scoped to that exchange; unprefixed keys
-apply to all. See `isSecret()` and `keyAppliesTo()`. Keys in `GENERATOR_ONLY_KEYS`
-(`MIN_ALLOW_ROA`, `TOP_ROA_N`) configure the generator and are kept out of both.
-Keys in `COMBO_KEYS` (`EXCHANGE`, `SYMBOL`, `INTERVAL`) are fixed by the combo and
-always override any same-named `.env` default — otherwise every ConfigMap would
-inherit `.env`'s single-bot `SYMBOL`/`INTERVAL`/`EXCHANGE`. See `configForCombo()`.
+**deploy.sh** — Full deployment pipeline that:
+1. Generates manifests by running `node generate.js`
+2. Applies them to Kubernetes with `kubectl apply -k manifests`
+3. Restarts deployments to pull the latest image
 
-## Inputs
+### Key Data Flows
 
-- **Optimizer API** (`GET /candles/manifest`) provides all available combinations.
-  The manifest returns file paths like `exchange/pair/timeframe.json` which
-  `generate.js` parses to build the combo set. Add combinations by ensuring they
-  exist in the optimizer's candle storage.
-- **`.env`** (KEY=VALUE) is the source for all ConfigMap/Secret values **and** for
-  the gate: `REMOTE_OPTIMIZER_PORT` + `REMOTE_OPTIMIZER_KEY` locate/authenticate
-  the optimizer, `MIN_ALLOW_ROA` (default 250) is the ROA threshold, and
-  `TOP_ROA_N` (default 10) caps how many top survivors are generated. It holds
-  live API credentials — **do not commit generated Secret manifests or `.env`
-  contents**, and keep secrets out of anything you print. Override the optimizer
-  base URL with `OPTIMIZER_URL` (e.g. to gate against a remote node).
-- **`config/combinations.json`** and **`manifests/`** are generated outputs; don't
-  hand-edit them (they're overwritten on the next generate).
+1. **Combination Fetching**: `/candles/manifest` returns file paths like `binance/BTCUSDT/5m.json`. The generator parses these to extract exchange, pair, and timeframe.
+
+2. **ROA Gating**: For each combo, fetch `/results?exchange=X&symbol=Y&interval=Z` to get the best backtest. Annualize the ROA using candle count and interval length.
+
+3. **Manifest Generation**: Each combo gets one YAML file containing:
+   - A **ConfigMap** named `ftrade-minibot-{slug}-env` with non-sensitive env vars (EXCHANGE, SYMBOL, INTERVAL, and bot-specific config)
+   - A **Deployment** with an init container that seeds a writable `.env` file (bots require a persistent `/app/.env`)
+   - References to a shared **Secret** (one per exchange) holding sensitive keys (API_KEY, API_SECRET, PASSPHRASE, etc.)
+
+4. **Kustomize Integration**: `kustomization.yaml` lists all generated manifests so `kubectl apply -k manifests` applies them atomically.
+
+### Configuration Hierarchy
+
+- **Generator-only keys** (from .env, not passed to bots): `MIN_ALLOW_ROA`, `TOP_ROA_N`
+- **Combo-controlled keys** (always overridden per-combo): `EXCHANGE`, `SYMBOL`, `INTERVAL`
+- **Exchange-scoped keys**: `BINANCE_*` or `KUCOIN_*` are only passed to combos on that exchange
+- **Shared keys**: Apply to all combos; exchange-scoped variants take precedence
+- **Sensitive keys**: Detected by suffix pattern (`_KEY`, `_SECRET`, `_PASSPHRASE`, `_TOKEN`, `_PASSWORD`) and moved into Secrets
+
+## Common Commands
+
+### Generate manifests (with gating)
+```bash
+npm run generate
+# or
+node generate.js
+```
+
+### Generate with custom TOP_ROA_N
+```bash
+node generate.js --top 5
+```
+
+### Dry-run: gate and report without writing
+```bash
+node generate.js --dry-run
+```
+
+### Write manifests to a different directory
+```bash
+node generate.js --out ./my-manifests
+```
+
+### Full deployment (generate + apply to k8s + restart)
+```bash
+./deploy.sh
+```
+
+### Apply pre-generated manifests
+```bash
+kubectl apply -k manifests
+```
+
+### Monitor deployed bots
+```bash
+kubectl get pods -l app=ftrade-minibot -w
+kubectl logs -l app=ftrade-minibot -f
+kubectl describe deployment -l app=ftrade-minibot
+```
+
+### Clean generated manifests (keeps config)
+```bash
+npm run clean
+```
+
+## Configuration (.env)
+
+Key variables (all optional except `REMOTE_OPTIMIZER_KEY`):
+
+- **REMOTE_OPTIMIZER_KEY** (required): Shared secret for authenticating with the optimizer API
+- **REMOTE_OPTIMIZER_PORT** (default: 4500): Port where optimizer listens on localhost
+- **OPTIMIZER_URL** (default: `http://127.0.0.1:{port}`): Override to hit a remote optimizer
+- **MIN_ALLOW_ROA** (default: 250): Minimum annualized ROA % to keep a combo
+- **TOP_ROA_N** (default: 10): Number of top-ROA survivors to generate manifests for
+- **IMAGE** (default: auto-detect): Docker image to use; if not set, auto-detects from `.last-built-image` or local Docker images
+- **REGISTRY_USER**: Docker registry user for building image names (e.g., `88288`)
+- **BINANCE_API_KEY**, **BINANCE_API_SECRET**: Binance credentials (go into Secrets)
+- **KUCOIN_API_KEY**, **KUCOIN_API_SECRET**, **KUCOIN_PASSPHRASE**: KuCoin credentials (go into Secrets)
+- **Any other variables** starting with `BINANCE_` or `KUCOIN_` will be exchange-scoped
+
+## Key Concepts
+
+**Annualized ROA**: The generator annualizes a backtest's total PnL over its candle window to estimate yearly ROA:
+```
+roa = (totalPnl × 365) / windowDays
+```
+This is rounded to 2 decimal places. ROA below `MIN_ALLOW_ROA` are dropped.
+
+**Combination Slug**: Combos are slugified for use in Kubernetes names and file names:
+```
+{exchange}-{pair}-{timeframe} → lowercase, alphanumerics only, hyphens
+Example: Binance BTCUSDT 5m → binance-btcusdt-5m
+```
+
+**Secret Sharing**: One Secret per exchange (e.g., `ftrade-minibot-binance-secret`) is created and shared by all combos on that exchange. This keeps secrets out of ConfigMaps and reduces duplication.
+
+**Init Container Pattern**: Each Deployment includes an init container that:
+1. Inherits env vars from ConfigMap + Secret
+2. Runs `printenv > /seed/.env` to create a writable `.env` file
+3. Mounts it at `/app/.env` so the bot can persist backtest results
+
+**Resolved Combinations**: After gating, the generator writes `config/combinations.json` with the exact set of combos that were generated. This serves as the source of truth for deployed combos.
+
+## Troubleshooting
+
+**"Cannot detect Docker username"**: The image auto-detection failed. Either set `IMAGE` in .env or run a build first to create a local image. See the error message for details.
+
+**"optimizer rejected REMOTE_OPTIMIZER_KEY (401)"**: The shared secret is wrong or missing.
+
+**No combos pass the ROA gate**: Either lower `MIN_ALLOW_ROA` in .env, or the optimizer has no results with high enough returns. Use `--dry-run` to see why each combo is dropped.
+
+**Deployment pod not starting**: Check logs with `kubectl logs <pod>`. Common issues:
+- Missing Secret (verify `secret-{exchange}.yaml` exists in manifests)
+- Wrong image tag (verify `IMAGE` resolves in your registry)
+- Missing env vars (check that .env has all required `BINANCE_*` or `KUCOIN_*` vars)
+
+**Image pull failures**: If using a private registry, ensure ImagePullSecrets are configured in the Deployment spec or in kustomization.yaml.

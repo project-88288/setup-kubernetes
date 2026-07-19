@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Generate Kubernetes ConfigMaps (each holding a distinct .env) that run the
- * prebuilt image `chaiya0899223232/ftrade-minibot`, one per combination
+ * prebuilt image `88288/ftrade-minibot`, one per combination
  * fetched from the optimizer API.
  *
  * Combinations are fetched from the optimizer's /candles/manifest endpoint,
@@ -131,15 +131,26 @@ function keyAppliesTo(key, exchange) {
   return !isExchangeScoped || key.startsWith(exchange.toUpperCase() + "_");
 }
 
-/** Detect the currently logged-in Docker user. */
+/** Detect the Docker registry user from local images. */
 function detectDockerUser() {
   try {
-    return execSync("docker whoami", { encoding: "utf8" }).trim();
+    // Try to extract username from local docker images matching ftrade-mini-bot
+    const images = execSync('docker images --format "table {{.Repository}}"', { encoding: "utf8" });
+    const match = images.split("\n").find(line => line.includes("ftrade-mini-bot"));
+    if (match) {
+      const repo = match.trim();
+      if (repo && repo.includes("/")) {
+        return repo.split("/")[0];
+      }
+    }
   } catch (err) {
-    console.error("❌ Docker not logged in or not running");
-    console.error("Please run: docker login");
-    process.exit(1);
+    // ignore docker images error, fall through to error message
   }
+
+  console.error("❌ Cannot detect Docker username from local images");
+  console.error("Please build an image first with: ./rebuild-image.sh");
+  console.error("Or set REGISTRY_USER in .env or IMAGE environment variable");
+  process.exit(1);
 }
 
 /** Detect the last built image from .last-built-image file. */
