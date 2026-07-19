@@ -1,8 +1,30 @@
 #!/bin/bash
 set -e
 
-IMAGE="chaiya0899223232/ftrade-mini-bot:latest"
 LABEL="app=ftrade-minibot"
+
+# Detect image (in priority order):
+# 1. IMAGE env var (explicit override)
+# 2. .last-built-image file (from rebuild-image.sh)
+# 3. Construct from REGISTRY_USER or Docker user
+if [ -n "$IMAGE" ]; then
+  # Already set via env var
+  :
+elif [ -f ".last-built-image" ]; then
+  # Use the last built image
+  IMAGE=$(cat .last-built-image)
+else
+  # Construct from Docker user
+  DOCKER_USER=$(docker whoami 2>/dev/null) || {
+    echo "❌ Docker not logged in or not running"
+    echo "Please run: docker login"
+    exit 1
+  }
+  IMAGE_NAME="${IMAGE_NAME:-ftrade-mini-bot}"
+  IMAGE_TAG="${IMAGE_TAG:-latest}"
+  REGISTRY_USER="${REGISTRY_USER:-$DOCKER_USER}"
+  IMAGE="$REGISTRY_USER/$IMAGE_NAME:$IMAGE_TAG"
+fi
 
 echo "🔄 Updating $IMAGE"
 

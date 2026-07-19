@@ -30,10 +30,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { execSync } from "node:child_process";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CONFIG_DIR = path.join(__dirname, "config");
 const ENV_FILE = path.join(__dirname, ".env");
+const LAST_BUILT_IMAGE_FILE = path.join(__dirname, ".last-built-image");
 
 // Interval string → minutes, for turning a candle count into a time span.
 const INTERVAL_MINUTES = {
@@ -127,6 +129,29 @@ function isSecret(key) {
 function keyAppliesTo(key, exchange) {
   const isExchangeScoped = /^(BINANCE|KUCOIN)_/.test(key);
   return !isExchangeScoped || key.startsWith(exchange.toUpperCase() + "_");
+}
+
+/** Detect the currently logged-in Docker user. */
+function detectDockerUser() {
+  try {
+    return execSync("docker whoami", { encoding: "utf8" }).trim();
+  } catch (err) {
+    console.error("❌ Docker not logged in or not running");
+    console.error("Please run: docker login");
+    process.exit(1);
+  }
+}
+
+/** Detect the last built image from .last-built-image file. */
+function detectLastBuiltImage() {
+  try {
+    if (fs.existsSync(LAST_BUILT_IMAGE_FILE)) {
+      return fs.readFileSync(LAST_BUILT_IMAGE_FILE, "utf8").trim();
+    }
+  } catch (err) {
+    // ignore read errors, fall through to None
+  }
+  return null;
 }
 
 /** Non-sensitive ConfigMap values for a combo. */
@@ -271,8 +296,19 @@ spec:
  */
 export function writeManifests(selected, outDir) {
   const baseEnv = parseEnv(ENV_FILE);
-  const registryUser = baseEnv.REGISTRY_USER || "88288";
-  const image = `${registryUser}/ftrade-mini-bot:latest`;
+
+  let image;
+  if (baseEnv.IMAGE) {
+    image = baseEnv.IMAGE;
+  } else {
+    const lastBuiltImage = detectLastBuiltImage();
+    if (lastBuiltImage) {
+      image = lastBuiltImage;
+    } else {
+      const registryUser = baseEnv.REGISTRY_USER || detectDockerUser();
+      image = `${registryUser}/ftrade-mini-bot:latest`;
+    }
+  }
 
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });

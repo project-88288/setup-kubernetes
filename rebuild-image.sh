@@ -1,8 +1,15 @@
 #!/bin/bash
 set -e
 
+# Detect current Docker user
+DOCKER_USER=$(docker whoami 2>/dev/null) || {
+  echo "❌ Docker not logged in or not running"
+  echo "Please run: docker login"
+  exit 1
+}
+
 # Configuration
-REGISTRY_USER="${REGISTRY_USER:-chaiya0899223232}"
+REGISTRY_USER="${REGISTRY_USER:-$DOCKER_USER}"
 IMAGE_NAME="${IMAGE_NAME:-ftrade-mini-bot}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
 SOURCE_DIR="${SOURCE_DIR:-../ftrade-mini-bot}"
@@ -35,6 +42,10 @@ docker build -t "$FULL_IMAGE" -f "$DOCKERFILE" .
 cd - > /dev/null
 
 echo "✓ Image built: $FULL_IMAGE"
+
+# Record the built image for generate.js to detect
+echo "$FULL_IMAGE" > .last-built-image
+
 echo ""
 
 # Optional: push to registry
